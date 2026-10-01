@@ -466,8 +466,7 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => alert("Pronto para iniciar a integração do login Google OAuth2 do Ninja Snap!")}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
+              onClick={() => window.location.href = "/api/auth/login"} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
             >
               <span>👤</span>
               <span className="hidden sm:inline">Conectar com Google</span>
