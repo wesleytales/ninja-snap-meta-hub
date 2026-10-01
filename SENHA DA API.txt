@@ -1,0 +1,5 @@
+{
+  "client_id": "2e325418-d2d7-4c41-836e-a326287ff517",
+  "client_secret": "-a6mwed90DFOlaT0FCc16X6kaVo0es808ijkRUJJDR8",
+  "webhook_secret": "w5Fjvt_6E3EOMRtTHCrZC4g3I0oZ6BKnF-nWripjxAo"
+}
