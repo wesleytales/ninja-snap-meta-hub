@@ -133,7 +133,7 @@ export default function Home() {
     }
   };
 
-  // Carrega cartas e decks do Supabase
+  // Carrega cartas e decks
   useEffect(() => {
     async function carregarTudo() {
       try {
@@ -749,7 +749,6 @@ export default function Home() {
                             <button
                               onClick={() => carregarDeckNoBuilder(deckItem)}
                               className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition-all cursor-pointer"
-                              title="Editar no Builder"
                             >
                               ✏️ Editar
                             </button>
@@ -762,7 +761,6 @@ export default function Home() {
                             <button
                               onClick={() => excluirDeckDoBanco(deckItem.id)}
                               className="px-3 py-2 bg-slate-800 hover:bg-red-600 text-xs font-bold rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
-                              title="Excluir deck do banco"
                             >
                               🗑️
                             </button>
@@ -1395,12 +1393,12 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 2: COLEÇÃO CORRIGIDO COM BUSCA, CUSTO E ALTURA FIXA */}
+      {/* MODAL 2: COLEÇÃO COM ALTURA FIXA NAS CARTAS (NUNCA COLAPSA) */}
       {modalColecaoAberto && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Topo do Modal */}
-            <div className="p-5 sm:p-6 border-b border-slate-800 bg-slate-950 space-y-4">
+            <div className="p-5 sm:p-6 border-b border-slate-800 bg-slate-950 space-y-4 flex-shrink-0">
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="text-xl font-black text-white flex items-center gap-2">
@@ -1432,7 +1430,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Barra de Filtros Interna do Modal */}
+              {/* Filtros Internos */}
               <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-1">
                 <input
                   type="text"
@@ -1455,8 +1453,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Grade de Cartas com Altura Fixa */}
-            <div className="p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {/* Grade de Cartas com Altura Garantida (h-44 sm:h-52) */}
+            <div className="p-6 overflow-y-auto flex-grow grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {cartasColecaoModalFiltradas.map((card) => {
                 const possui = minhaColecao.includes(card.id);
 
@@ -1466,19 +1464,18 @@ export default function Home() {
                     onClick={() => toggleCartaNaColecao(card.id)}
                     className={`group relative rounded-2xl overflow-hidden border cursor-pointer transition-all hover:scale-105 shadow-xl flex flex-col justify-between ${
                       possui
-                        ? "border-green-500 ring-2 ring-green-500/40 opacity-100 bg-slate-900"
+                        ? "border-green-500 ring-2 ring-green-500/50 bg-slate-900"
                         : "border-slate-800 opacity-40 grayscale bg-slate-950 hover:opacity-75"
                     }`}
                   >
-                    <div className="relative aspect-[512/768] w-full bg-slate-950">
-                      {/* Checkmark Verde */}
+                    {/* Contêiner com altura fixa que impede colapsar */}
+                    <div className="relative w-full h-44 sm:h-52 bg-slate-950 overflow-hidden">
                       {possui && (
-                        <div className="absolute top-2 right-2 z-20 bg-green-600 text-white text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border border-slate-950">
+                        <div className="absolute top-2 right-2 z-20 bg-green-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border border-slate-950">
                           ✓
                         </div>
                       )}
 
-                      {/* Badges de Custo e Poder */}
                       <div className="absolute top-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
                         {card.chakra}
                       </div>
@@ -1491,10 +1488,14 @@ export default function Home() {
                         alt={card.name}
                         loading="lazy"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = "none";
+                        }}
                       />
                     </div>
-                    <div className="p-2 text-center bg-slate-900/95 border-t border-slate-800">
-                      <p className="text-[11px] font-bold text-slate-200 truncate">{card.name}</p>
+
+                    <div className="p-2 text-center bg-slate-900 border-t border-slate-800">
+                      <p className="text-xs font-bold text-slate-200 truncate">{card.name}</p>
                     </div>
                   </div>
                 );
@@ -1502,7 +1503,7 @@ export default function Home() {
             </div>
 
             {/* Rodapé do Modal */}
-            <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-between items-center text-xs">
+            <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-between items-center text-xs flex-shrink-0">
               <span className="text-slate-400">
                 Cartas na coleção: <b className="text-orange-400">{minhaColecao.length}</b> de {cards.length} ninjas
               </span>
