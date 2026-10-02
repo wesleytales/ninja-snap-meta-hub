@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/lib/supabase";
 
 interface Card {
   id: string;
@@ -30,6 +31,7 @@ interface MetaDeck {
   upvotes: number;
   downvotes: number;
   cards: Card[];
+  card_ids?: string[];
   isPremium?: boolean;
 }
 
@@ -38,18 +40,18 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Abas: "deckstier", "tierlist", "builder", "catalog"
+  // Abas
   const [abaAtiva, setAbaAtiva] = useState<"deckstier" | "tierlist" | "builder" | "catalog">("deckstier");
 
   // Minha Coleção
   const [minhaColecao, setMinhaColecao] = useState<string[]>([]);
   const [modalColecaoAberto, setModalColecaoAberto] = useState(false);
 
-  // Decks e Votos
+  // Decks reais vindos do Supabase
   const [decksLista, setDecksLista] = useState<MetaDeck[]>([]);
   const [meusVotos, setMeusVotos] = useState<Record<string, "up" | "down">>({});
 
-  // Filtros de Decks (Untapped.gg style)
+  // Filtros de Decks
   const [deckFiltroElo, setDeckFiltroElo] = useState<"all" | "0-29" | "30-59" | "60-89" | "90+">("all");
   const [deckFiltroColecao, setDeckFiltroColecao] = useState<"all" | "craftable" | "missing-1" | "missing-2">("all");
   const [deckOrdenacao, setDeckOrdenacao] = useState<"untapped" | "winrate" | "games" | "cubes">("untapped");
@@ -64,10 +66,13 @@ export default function Home() {
   // Deck Builder
   const [deck, setDeck] = useState<Card[]>([]);
   const [nomeDeck, setNomeDeck] = useState("Meu Deck Ninja");
+  const [autorDeck, setAutorDeck] = useState("");
+  const [arquetipoDeck, setArquetipoDeck] = useState("Controle");
   const [builderBusca, setBuilderBusca] = useState("");
   const [builderChakra, setBuilderChakra] = useState<number | "all">("all");
   const [builderHabilidade, setBuilderHabilidade] = useState<string>("all");
   const [copiado, setCopiado] = useState(false);
+  const [salvandoDeck, setSalvandoDeck] = useState(false);
 
   // Filtros Catálogo
   const [catalogBusca, setCatalogBusca] = useState("");
@@ -84,7 +89,7 @@ export default function Home() {
     { id: "debuff", label: "📉 Reduz Poder", match: ["reduz", "- de poder", "- poder", "reduzindo"] },
   ];
 
-  // Carrega coleção salva
+  // Carrega coleção do localStorage
   useEffect(() => {
     const salva = localStorage.getItem("ninja_snap_collection");
     if (salva) {
@@ -107,7 +112,7 @@ export default function Home() {
     }
   };
 
-  // Carrega catálogo e estatísticas
+  // 1. CARREGA CARTAS E DEPOIS OS DECKS DO SUPABASE
   useEffect(() => {
     async function carregarTudo() {
       try {
@@ -135,99 +140,61 @@ export default function Home() {
         setCards(cartasCompletas);
 
         if (!localStorage.getItem("ninja_snap_collection") && cartasCompletas.length > 0) {
-          const iniciais = cartasCompletas.slice(0, 45).map((c) => c.id);
-          salvarColecao(iniciais);
+          salvarColecao(cartasCompletas.slice(0, 45).map((c) => c.id));
         }
 
-        if (cartasCompletas.length >= 12) {
-          const getCards = (ids: string[]) => {
-            const enc = ids.map((id) => cartasCompletas.find((c) => c.id === id)).filter(Boolean) as Card[];
-            if (enc.length < 12) {
-              const extras = cartasCompletas.filter((c) => !enc.some((e) => e.id === c.id)).slice(0, 12 - enc.length);
-              return [...enc, ...extras];
-            }
-            return enc.slice(0, 12);
-          };
+        // 2. BUSCA OS DECKS SALVOS NO BANCO SUPABASE
+        const { data: decksDoBanco, error: dbError } = await supabase
+          .from("decks")
+          .select("*")
+          .order("upvotes", { ascending: false });
 
-          setDecksLista([
-            {
-              id: "deck-meta-1",
-              title: "Itachi Control & Disruption",
-              archetype: "Controle / Hand Disruption",
+        if (decksDoBanco && decksDoBanco.length > 0) {
+          const decksMontados: MetaDeck[] = decksDoBanco.map((d: any) => {
+            const cardIds: string[] = d.card_ids || [];
+            const cartasDoDeck = cardIds
+              .map((id) => cartasCompletas.find((c) => c.id === id))
+              .filter(Boolean) as Card[];
+
+            return {
+              id: d.id,
+              title: d.title,
+              archetype: d.archetype || "Geral",
+              author: d.author || "Anônimo",
+              minElo: d.min_elo || 0,
+              maxElo: d.max_elo || 100,
+              rankTierName: d.rank_tier_name || "Geral",
+              totalGames: d.total_games || 1,
+              winRate: d.win_rate || 50.0,
+              avgCubes: d.avg_cubes || 0.0,
+              upvotes: d.upvotes || 1,
+              downvotes: d.downvotes || 0,
+              cards: cartasDoDeck.length === 12 ? cartasDoDeck : cartasCompletas.slice(0, 12),
+              isPremium: d.min_elo >= 90,
+            };
+          });
+
+          setDecksLista(decksMontados);
+        } else {
+          // Se o banco estiver vazio ainda, cria um deck inicial de demonstração
+          if (cartasCompletas.length >= 12) {
+            const deckInicial = {
+              id: "deck-1",
+              title: "Itachi Control & Meta Starter",
+              archetype: "Controle",
               author: "Tsunoby",
-              minElo: 90,
-              maxElo: 100,
-              rankTierName: "Hokage (90+)",
-              isPremium: true,
-              winRate: 61.8,
-              totalGames: 3420,
-              avgCubes: 0.84,
-              upvotes: 45,
-              downvotes: 3,
-              cards: getCards(["condor", "chocho", "itachi", "pain", "madara", "shikamaru", "neji", "kakashi", "sakura", "sasuke", "naruto", "gaara"]),
-            },
-            {
-              id: "deck-meta-2",
-              title: "Kage Sand Ongoing Fortress",
-              archetype: "Constante / Defesa",
-              author: "Kazekage_Main",
               minElo: 60,
               maxElo: 89,
               rankTierName: "Jonin (60-89)",
-              winRate: 58.4,
-              totalGames: 5120,
-              avgCubes: 0.62,
-              upvotes: 32,
-              downvotes: 4,
-              cards: getCards(["gaara", "benten", "choji", "chojibutterfly", "asuma", "hinata", "sasuke", "sakura", "rocklee", "neji", "kankuro", "temari"]),
-            },
-            {
-              id: "deck-meta-3",
-              title: "Shadow Clone Swarm & Buff",
-              archetype: "Enxame / Multiplicação",
-              author: "Uzumaki_Pro",
-              minElo: 30,
-              maxElo: 59,
-              rankTierName: "Chunin (30-59)",
-              winRate: 56.1,
-              totalGames: 8940,
-              avgCubes: 0.49,
-              upvotes: 68,
-              downvotes: 6,
-              cards: getCards(["naruto", "condor", "chocho", "sakura", "hinata", "rocklee", "ebisu", "iruka", "jiraiya", "tsunade", "asuma", "choji"]),
-            },
-            {
-              id: "deck-meta-4",
-              title: "Akatsuki Destruction Tempo",
-              archetype: "Destruição & Reanimação",
-              author: "Nagato_Shinra",
-              minElo: 90,
-              maxElo: 100,
-              rankTierName: "Hokage (90+)",
-              isPremium: true,
-              winRate: 63.2,
-              totalGames: 2150,
-              avgCubes: 0.95,
-              upvotes: 89,
-              downvotes: 5,
-              cards: getCards(["pain", "itachi", "konan", "hidan", "kakuzu", "deidara", "sasori", "tobi", "orochimaru", "madara", "kabuto", "shisui"]),
-            },
-            {
-              id: "deck-meta-5",
-              title: "Iniciante: Standard Leaf Beatdown",
-              archetype: "Equilibrado / Curva",
-              author: "Konoha_Academy",
-              minElo: 0,
-              maxElo: 29,
-              rankTierName: "Academia (0-29)",
-              winRate: 54.0,
-              totalGames: 12400,
-              avgCubes: 0.38,
-              upvotes: 115,
-              downvotes: 12,
-              cards: getCards(["naruto", "sasuke", "sakura", "kakashi", "shikamaru", "choji", "ino", "neji", "rocklee", "hinata", "kiba", "shino"]),
-            },
-          ]);
+              totalGames: 3420,
+              winRate: 61.8,
+              avgCubes: 0.84,
+              upvotes: 42,
+              downvotes: 2,
+              cards: cartasCompletas.slice(0, 12),
+            };
+            setDecksLista([deckInicial]);
+          }
         }
       } catch (err) {
         setError("Erro ao carregar dados oficiais do Ninja Snap.");
@@ -239,31 +206,120 @@ export default function Home() {
     carregarTudo();
   }, []);
 
-  const votarNoDeck = (deckId: string, tipo: "up" | "down") => {
-    if (meusVotos[deckId] === tipo) return;
+  // PUBLICAR NOVO DECK NO SUPABASE (SALVA DE VERDADE NO BANCO)
+  const publicarDeckNoBanco = async () => {
+    if (deck.length !== 12) {
+      alert("Para publicar na Tier List, selecione exatamente 12 cartas!");
+      return;
+    }
 
-    setDecksLista((prev) =>
-      prev.map((d) => {
-        if (d.id !== deckId) return d;
-        const votoAnterior = meusVotos[deckId];
-        let up = d.upvotes;
-        let down = d.downvotes;
+    try {
+      setSalvandoDeck(true);
 
-        if (tipo === "up") {
-          up += 1;
-          if (votoAnterior === "down") down -= 1;
-        } else {
-          down += 1;
-          if (votoAnterior === "up") up -= 1;
-        }
+      // Calcula Win Rate médio das 12 cartas do deck
+      const comWinRate = deck.filter((c) => c.winRate !== null && c.winRate !== undefined);
+      const mediaWr =
+        comWinRate.length > 0
+          ? comWinRate.reduce((acc, c) => acc + (c.winRate || 0), 0) / comWinRate.length
+          : 52.5;
 
-        return { ...d, upvotes: Math.max(0, up), downvotes: Math.max(0, down) };
-      })
-    );
+      const comCubos = deck.filter((c) => c.averageCubes !== null && c.averageCubes !== undefined);
+      const mediaCubos =
+        comCubos.length > 0
+          ? comCubos.reduce((acc, c) => acc + (c.averageCubes || 0), 0) / comCubos.length
+          : 0.45;
 
-    setMeusVotos({ ...meusVotos, [deckId]: tipo });
+      const cardIds = deck.map((c) => c.id);
+
+      const novoDeckBanco = {
+        title: nomeDeck.trim() || "Novo Deck Ninja",
+        author: autorDeck.trim() || "Ninja Anônimo",
+        archetype: arquetipoDeck,
+        min_elo: 30,
+        max_elo: 89,
+        rank_tier_name: "Chunin / Jonin",
+        win_rate: parseFloat(mediaWr.toFixed(1)),
+        total_games: 50,
+        avg_cubes: parseFloat(mediaCubos.toFixed(2)),
+        upvotes: 1,
+        downvotes: 0,
+        card_ids: cardIds,
+      };
+
+      const { data, error: insertError } = await supabase
+        .from("decks")
+        .insert([novoDeckBanco])
+        .select();
+
+      if (insertError) {
+        throw insertError;
+      }
+
+      const deckSalvo: MetaDeck = {
+        id: data[0].id,
+        title: data[0].title,
+        archetype: data[0].archetype,
+        author: data[0].author,
+        minElo: data[0].min_elo,
+        maxElo: data[0].max_elo,
+        rankTierName: data[0].rank_tier_name,
+        totalGames: data[0].total_games,
+        winRate: data[0].win_rate,
+        avgCubes: data[0].avg_cubes,
+        upvotes: data[0].upvotes,
+        downvotes: data[0].downvotes,
+        cards: [...deck],
+        isPremium: false,
+      };
+
+      setDecksLista([deckSalvo, ...decksLista]);
+      setDeck([]);
+      setNomeDeck(`Meu Deck Ninja #${decksLista.length + 2}`);
+      setAutorDeck("");
+      alert("🎉 Deck publicado e salvo com sucesso no Banco de Dados!");
+      setAbaAtiva("deckstier");
+    } catch (err: any) {
+      alert("Erro ao salvar no banco: " + (err.message || "Tente novamente"));
+    } finally {
+      setSalvandoDeck(false);
+    }
   };
 
+  // VOTAÇÃO COM ATUALIZAÇÃO NO SUPABASE
+  const votarNoDeck = async (deckId: string, tipo: "up" | "down") => {
+    if (meusVotos[deckId] === tipo) return;
+
+    const deckAlvo = decksLista.find((d) => d.id === deckId);
+    if (!deckAlvo) return;
+
+    let up = deckAlvo.upvotes;
+    let down = deckAlvo.downvotes;
+    const votoAnterior = meusVotos[deckId];
+
+    if (tipo === "up") {
+      up += 1;
+      if (votoAnterior === "down") down -= 1;
+    } else {
+      down += 1;
+      if (votoAnterior === "up") up -= 1;
+    }
+
+    up = Math.max(0, up);
+    down = Math.max(0, down);
+
+    // Atualiza na tela na hora
+    setDecksLista((prev) =>
+      prev.map((d) => (d.id === deckId ? { ...d, upvotes: up, downvotes: down } : d))
+    );
+    setMeusVotos({ ...meusVotos, [deckId]: tipo });
+
+    // Salva o voto no Supabase
+    try {
+      await supabase.from("decks").update({ upvotes: up, downvotes: down }).eq("id", deckId);
+    } catch (e) {}
+  };
+
+  // Análise de Coleção por Deck
   const decksComAnaliseColecao = useMemo(() => {
     return decksLista.map((deckItem) => {
       const cartasFaltando = deckItem.cards.filter((c) => !minhaColecao.includes(c.id));
@@ -276,6 +332,7 @@ export default function Home() {
     });
   }, [decksLista, minhaColecao]);
 
+  // Filtros e Ordenação de Decks
   const decksFiltrados = useMemo(() => {
     return decksComAnaliseColecao
       .filter((d) => {
@@ -375,10 +432,9 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-orange-500 selection:text-white">
-      {/* 1. NAVBAR FIXA NO TOPO */}
+      {/* 1. NAVBAR FIXA */}
       <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 shadow-2xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-4">
-          {/* Logo & Imagem Personalizada */}
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setAbaAtiva("deckstier")}>
             <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-orange-600 via-amber-500 to-yellow-400 p-0.5 shadow-lg shadow-orange-500/20 flex items-center justify-center overflow-hidden">
               <img
@@ -404,7 +460,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Menus de Navegação */}
           <nav className="hidden md:flex items-center bg-slate-900/90 border border-slate-800 p-1.5 rounded-2xl gap-1 shadow-inner">
             <button
               onClick={() => setAbaAtiva("deckstier")}
@@ -414,7 +469,7 @@ export default function Home() {
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
               }`}
             >
-              🔥 Melhores Decks
+              🔥 Melhores Decks ({decksLista.length})
             </button>
             <button
               onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }}
@@ -434,7 +489,7 @@ export default function Home() {
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
               }`}
             >
-              🃏 Deck Builder ({deck.length}/12)
+              🃏 Criar Deck ({deck.length}/12)
             </button>
             <button
               onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }}
@@ -448,7 +503,6 @@ export default function Home() {
             </button>
           </nav>
 
-          {/* Minha Coleção & Login Google */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => setModalColecaoAberto(true)}
@@ -468,43 +522,15 @@ export default function Home() {
             </button>
           </div>
         </div>
-
-        {/* Menu Mobile */}
-        <div className="md:hidden flex overflow-x-auto px-4 py-2 bg-slate-900 border-t border-slate-800 gap-2">
-          <button
-            onClick={() => setAbaAtiva("deckstier")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "deckstier" ? "bg-orange-600 text-white" : "text-slate-400"}`}
-          >
-            🔥 Decks
-          </button>
-          <button
-            onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "tierlist" ? "bg-orange-600 text-white" : "text-slate-400"}`}
-          >
-            🏆 Tier List
-          </button>
-          <button
-            onClick={() => setAbaAtiva("builder")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "builder" ? "bg-orange-600 text-white" : "text-slate-400"}`}
-          >
-            🃏 Builder ({deck.length}/12)
-          </button>
-          <button
-            onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "catalog" ? "bg-orange-600 text-white" : "text-slate-400"}`}
-          >
-            📖 Catálogo
-          </button>
-        </div>
       </header>
 
-      {/* 2. CONTEÚDO PRINCIPAL */}
+      {/* 2. CONTEÚDO */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         {loading && (
           <div className="text-center py-32">
             <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
             <p className="text-lg font-bold text-orange-400 tracking-wide animate-pulse">
-              Carregando dados shinobi do Ninja Snap...
+              Carregando dados oficiais do Ninja Snap & Supabase...
             </p>
           </div>
         )}
@@ -517,21 +543,19 @@ export default function Home() {
 
         {!loading && !error && (
           <>
-            {/* ========================================================= */}
-            {/* ABA 1: MELHORES DECKS (UNTAPPED.GG + VOTAÇÃO) */}
-            {/* ========================================================= */}
+            {/* ABA 1: MELHORES DECKS */}
             {abaAtiva === "deckstier" && (
               <div className="space-y-6">
                 <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-orange-950/40 border border-slate-800 p-6 sm:p-8 shadow-2xl">
                   <div className="relative z-10 max-w-2xl">
                     <span className="text-xs font-black tracking-widest text-orange-400 uppercase bg-orange-950/80 border border-orange-500/30 px-3 py-1 rounded-full">
-                      META TRACKER OFICIAL
+                      META TRACKER & BANCO DE DADOS
                     </span>
                     <h2 className="text-2xl sm:text-3xl font-black text-white mt-3 tracking-wide">
                       Top Decks do Meta Ranqueado
                     </h2>
                     <p className="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
-                      Classificação estilo Untapped.gg baseada em Win Rate, volume de partidas e rendimento de cubos. Vote nos decks que funcionam para você!
+                      Decks sincronizados diretamente da nuvem. Crie o seu e vote nos melhores para subir de elo!
                     </p>
                   </div>
                 </div>
@@ -666,11 +690,11 @@ export default function Home() {
                               </div>
                             </div>
 
-                            {/* Botões de Voto 👍 e 👎 */}
+                            {/* VOTAÇÃO SUPABASE */}
                             <div className="flex items-center bg-slate-950 rounded-2xl border border-slate-800 p-1 shadow">
                               <button
                                 onClick={() => votarNoDeck(deckItem.id, "up")}
-                                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                   meuVoto === "up" ? "bg-green-600 text-white shadow-lg shadow-green-600/30" : "text-slate-400 hover:text-green-400 hover:bg-slate-900"
                                 }`}
                                 title="Deck forte"
@@ -679,7 +703,7 @@ export default function Home() {
                               </button>
                               <button
                                 onClick={() => votarNoDeck(deckItem.id, "down")}
-                                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                   meuVoto === "down" ? "bg-red-600 text-white shadow-lg shadow-red-600/30" : "text-slate-400 hover:text-red-400 hover:bg-slate-900"
                                 }`}
                                 title="Não recomendado"
@@ -688,7 +712,6 @@ export default function Home() {
                               </button>
                             </div>
 
-                            {/* Status de Coleção */}
                             {deckItem.missingCount === 0 ? (
                               <span className="bg-green-950/80 border border-green-500/50 text-green-300 text-xs font-black px-3 py-2 rounded-xl">
                                 ✓ Pronto p/ Jogar
@@ -708,7 +731,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Grade das 12 cartas com Chakra e Poder */}
+                        {/* 12 Cartas */}
                         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2.5">
                           {deckItem.cards.map((card) => {
                             const possuiNaColecao = minhaColecao.includes(card.id);
@@ -760,9 +783,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ========================================================= */}
             {/* ABA 2: TIER LIST DE CARTAS */}
-            {/* ========================================================= */}
             {abaAtiva === "tierlist" && (
               <div className="space-y-6">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
@@ -819,7 +840,6 @@ export default function Home() {
                           #{idx + 1}
                         </div>
 
-                        {/* Custo e Poder na Tier List */}
                         <div className="absolute top-2 right-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
                           {card.chakra}
                         </div>
@@ -862,23 +882,51 @@ export default function Home() {
               </div>
             )}
 
-            {/* ========================================================= */}
-            {/* ABA 3: DECK BUILDER */}
-            {/* ========================================================= */}
+            {/* ABA 3: DECK BUILDER COM SALVAMENTO NO SUPABASE */}
             {abaAtiva === "builder" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col justify-between h-fit sticky top-24">
-                  <div>
-                    <input
-                      type="text"
-                      value={nomeDeck}
-                      onChange={(e) => setNomeDeck(e.target.value)}
-                      className="bg-slate-950 border border-slate-800 text-base font-bold text-orange-400 rounded-xl px-3 py-2 w-full focus:outline-none focus:border-orange-500 mb-4"
-                    />
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Nome do Deck:</label>
+                      <input
+                        type="text"
+                        value={nomeDeck}
+                        onChange={(e) => setNomeDeck(e.target.value)}
+                        className="bg-slate-950 border border-slate-800 text-sm font-bold text-orange-400 rounded-xl px-3 py-2 w-full focus:outline-none focus:border-orange-500"
+                      />
+                    </div>
 
-                    <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Seu Nick:</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Tsunoby"
+                          value={autorDeck}
+                          onChange={(e) => setAutorDeck(e.target.value)}
+                          className="bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-xl px-3 py-2 w-full focus:outline-none focus:border-orange-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Arquétipo:</label>
+                        <select
+                          value={arquetipoDeck}
+                          onChange={(e) => setArquetipoDeck(e.target.value)}
+                          className="bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-xl px-2.5 py-2 w-full focus:outline-none focus:border-orange-500"
+                        >
+                          <option value="Controle">Controle</option>
+                          <option value="Enxame / Clones">Enxame / Clones</option>
+                          <option value="Constante">Constante</option>
+                          <option value="Destruição">Destruição</option>
+                          <option value="Mover">Mover</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1 pt-2 border-t border-slate-800">
                       {deck.length === 0 ? (
-                        <p className="text-xs text-slate-500 text-center py-10">
+                        <p className="text-xs text-slate-500 text-center py-8">
                           Clique nas cartas ao lado para montar seu deck de 12 cartas.
                         </p>
                       ) : (
@@ -906,13 +954,24 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="mt-5 pt-4 border-t border-slate-800">
+                  <div className="mt-5 pt-4 border-t border-slate-800 space-y-2">
+                    <button
+                      onClick={publicarDeckNoBanco}
+                      disabled={deck.length !== 12 || salvandoDeck}
+                      className={`w-full py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-lg cursor-pointer ${
+                        deck.length === 12
+                          ? "bg-green-600 hover:bg-green-500 text-white"
+                          : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                      }`}
+                    >
+                      {salvandoDeck ? "Salvando no Banco..." : `🚀 Salvar no Banco (${deck.length}/12)`}
+                    </button>
                     <button
                       onClick={() => copiarCodigoDeck(deck, nomeDeck)}
                       disabled={deck.length === 0}
-                      className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-black transition-all shadow-lg cursor-pointer"
+                      className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all cursor-pointer"
                     >
-                      {copiado ? "✓ Código Copiado!" : `📋 Copiar Código (${deck.length}/12)`}
+                      {copiado ? "✓ Código Copiado!" : "📋 Copiar Código"}
                     </button>
                   </div>
                 </div>
@@ -992,9 +1051,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ========================================================= */}
             {/* ABA 4: CATÁLOGO COMPLETO */}
-            {/* ========================================================= */}
             {abaAtiva === "catalog" && (
               <div className="space-y-6">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row gap-4 items-center justify-between">
@@ -1034,7 +1091,6 @@ export default function Home() {
                   {cartasCatalogo.slice(0, limiteExibicao).map((card) => (
                     <div key={card.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between hover:border-orange-500 transition-all">
                       <div className="relative aspect-[512/768] w-full bg-slate-950">
-                        {/* CUSTO E DANO NO CATÁLOGO */}
                         <div className="absolute top-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
                           {card.chakra}
                         </div>
@@ -1052,7 +1108,6 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Botões de Carregar Mais */}
                 {limiteExibicao < cartasCatalogo.length && (
                   <div className="flex justify-center gap-3 pt-6">
                     <button
