@@ -9,24 +9,44 @@ export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
   const redirectUri = `${origin}/api/auth/callback`;
 
-  // 1. Gera o code_verifier (chave aleatória de 32 bytes em base64url)
-  const codeVerifier = crypto.randomBytes(32).toString("base64url");
+  // 1. Gera um code_verifier de 64 caracteres alfanuméricos seguros
+  const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const randomBytes = crypto.randomBytes(64);
+  let codeVerifier = "";
+  for (let i = 0; i < 64; i++) {
+    codeVerifier += charset[randomBytes[i] % charset.length];
+  }
 
-  // 2. Gera o code_challenge usando SHA-256 (Padrão PKCE S256 exigido pela API)
+  // 2. Gera o code_challenge (SHA-256 do verifier em Base64URL sem padding)
   const codeChallenge = crypto
     .createHash("sha256")
-    .update(codeVerifier)
-    .digest("base64url");
+    .update(codeVerifier, "ascii")
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 
-  // 3. Gera um state anti-CSRF para segurança
+  // 3. Gera state anti-CSRF
   const state = crypto.randomBytes(16).toString("hex");
 
-  // 4. Salva o verifier e o state nos cookies
+  // 4. Salva nos cookies do navegador
   const cookieStore = await cookies();
-  cookieStore.set("oauth_code_verifier", codeVerifier, { httpOnly: true, maxAge: 600, path: "/" });
-  cookieStore.set("oauth_state", state, { httpOnly: true, maxAge: 600, path: "/" });
+  cookieStore.set("oauth_code_verifier", codeVerifier, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
+  cookieStore.set("oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 600,
+    path: "/",
+  });
 
-  // 5. Monta a URL de autorização oficial do Ninja Snap
+  // 5. Monta a URL de autorização oficial
   const authUrl = new URL("https://api.ninja-snap.com/oauth/authorize");
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("response_type", "code");
