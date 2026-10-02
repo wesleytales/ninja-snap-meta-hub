@@ -38,7 +38,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Abas Principais
+  // Abas: "deckstier", "tierlist", "builder", "catalog"
   const [abaAtiva, setAbaAtiva] = useState<"deckstier" | "tierlist" | "builder" | "catalog">("deckstier");
 
   // Minha Coleção
@@ -49,7 +49,7 @@ export default function Home() {
   const [decksLista, setDecksLista] = useState<MetaDeck[]>([]);
   const [meusVotos, setMeusVotos] = useState<Record<string, "up" | "down">>({});
 
-  // Filtros de Decks
+  // Filtros de Decks (Untapped.gg style)
   const [deckFiltroElo, setDeckFiltroElo] = useState<"all" | "0-29" | "30-59" | "60-89" | "90+">("all");
   const [deckFiltroColecao, setDeckFiltroColecao] = useState<"all" | "craftable" | "missing-1" | "missing-2">("all");
   const [deckOrdenacao, setDeckOrdenacao] = useState<"untapped" | "winrate" | "games" | "cubes">("untapped");
@@ -134,13 +134,11 @@ export default function Home() {
 
         setCards(cartasCompletas);
 
-        // Preenche coleção padrão se for a primeira vez
         if (!localStorage.getItem("ninja_snap_collection") && cartasCompletas.length > 0) {
           const iniciais = cartasCompletas.slice(0, 45).map((c) => c.id);
           salvarColecao(iniciais);
         }
 
-        // Gera os Decks Ranqueados do Meta
         if (cartasCompletas.length >= 12) {
           const getCards = (ids: string[]) => {
             const enc = ids.map((id) => cartasCompletas.find((c) => c.id === id)).filter(Boolean) as Card[];
@@ -241,7 +239,6 @@ export default function Home() {
     carregarTudo();
   }, []);
 
-  // Votação nos Decks
   const votarNoDeck = (deckId: string, tipo: "up" | "down") => {
     if (meusVotos[deckId] === tipo) return;
 
@@ -267,7 +264,6 @@ export default function Home() {
     setMeusVotos({ ...meusVotos, [deckId]: tipo });
   };
 
-  // Cálculo de Coleção por Deck
   const decksComAnaliseColecao = useMemo(() => {
     return decksLista.map((deckItem) => {
       const cartasFaltando = deckItem.cards.filter((c) => !minhaColecao.includes(c.id));
@@ -280,7 +276,6 @@ export default function Home() {
     });
   }, [decksLista, minhaColecao]);
 
-  // Filtros e Ordenação de Decks
   const decksFiltrados = useMemo(() => {
     return decksComAnaliseColecao
       .filter((d) => {
@@ -313,7 +308,6 @@ export default function Home() {
       });
   }, [decksComAnaliseColecao, deckBusca, deckFiltroElo, deckFiltroColecao, deckOrdenacao]);
 
-  // Toggle no Builder
   const toggleCardNoDeck = (card: Card) => {
     const jaEsta = deck.some((c) => c.id === card.id);
     if (jaEsta) {
@@ -334,7 +328,6 @@ export default function Home() {
     setTimeout(() => setCopiado(false), 2500);
   };
 
-  // Listagens Filtradas
   const cartasTierList = useMemo(() => {
     return cards
       .filter((card) => {
@@ -370,12 +363,14 @@ export default function Home() {
   }, [cards, builderBusca, builderChakra, builderHabilidade]);
 
   const cartasCatalogo = useMemo(() => {
-    return cards.filter((card) => {
-      const texto = catalogBusca.toLowerCase();
-      const bateNome = card.name.toLowerCase().includes(texto) || (card.ability?.text || "").toLowerCase().includes(texto);
-      const bateChakra = catalogChakra === "all" ? true : catalogChakra === 6 ? card.chakra >= 6 : card.chakra === catalogChakra;
-      return bateNome && bateChakra;
-    });
+    return cards
+      .filter((card) => {
+        const texto = catalogBusca.toLowerCase();
+        const bateNome = card.name.toLowerCase().includes(texto) || (card.ability?.text || "").toLowerCase().includes(texto);
+        const bateChakra = catalogChakra === "all" ? true : catalogChakra === 6 ? card.chakra >= 6 : card.chakra === catalogChakra;
+        return bateNome && bateChakra;
+      })
+      .sort((a, b) => a.chakra - b.chakra || a.name.localeCompare(b.name));
   }, [cards, catalogBusca, catalogChakra]);
 
   return (
@@ -391,7 +386,6 @@ export default function Home() {
                 alt="Ninja Snap Logo"
                 className="w-full h-full object-contain rounded-[14px] bg-slate-950"
                 onError={(e) => {
-                  // Se ainda não tiver colocado o logo.png, exibe o ícone ninja
                   (e.target as HTMLElement).style.display = "none";
                   (e.target as HTMLElement).parentElement!.innerHTML = `<span class="text-xl">🥷</span>`;
                 }}
@@ -423,7 +417,7 @@ export default function Home() {
               🔥 Melhores Decks
             </button>
             <button
-              onClick={() => setAbaAtiva("tierlist")}
+              onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }}
               className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "tierlist"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
@@ -443,7 +437,7 @@ export default function Home() {
               🃏 Deck Builder ({deck.length}/12)
             </button>
             <button
-              onClick={() => setAbaAtiva("catalog")}
+              onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }}
               className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "catalog"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
@@ -466,16 +460,45 @@ export default function Home() {
             </button>
 
             <button
-              onClick={() => window.location.href = "/api/auth/login"} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
+              onClick={() => window.location.href = "/api/auth/login"}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
             >
               <span>👤</span>
               <span className="hidden sm:inline">Conectar com Google</span>
             </button>
           </div>
         </div>
+
+        {/* Menu Mobile */}
+        <div className="md:hidden flex overflow-x-auto px-4 py-2 bg-slate-900 border-t border-slate-800 gap-2">
+          <button
+            onClick={() => setAbaAtiva("deckstier")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "deckstier" ? "bg-orange-600 text-white" : "text-slate-400"}`}
+          >
+            🔥 Decks
+          </button>
+          <button
+            onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "tierlist" ? "bg-orange-600 text-white" : "text-slate-400"}`}
+          >
+            🏆 Tier List
+          </button>
+          <button
+            onClick={() => setAbaAtiva("builder")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "builder" ? "bg-orange-600 text-white" : "text-slate-400"}`}
+          >
+            🃏 Builder ({deck.length}/12)
+          </button>
+          <button
+            onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "catalog" ? "bg-orange-600 text-white" : "text-slate-400"}`}
+          >
+            📖 Catálogo
+          </button>
+        </div>
       </header>
 
-      {/* 2. CONTEÚDO */}
+      {/* 2. CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         {loading && (
           <div className="text-center py-32">
@@ -495,11 +518,10 @@ export default function Home() {
         {!loading && !error && (
           <>
             {/* ========================================================= */}
-            {/* ABA 1: MELHORES DECKS COM SISTEMA DE VOTAÇÃO COMPLETO */}
+            {/* ABA 1: MELHORES DECKS (UNTAPPED.GG + VOTAÇÃO) */}
             {/* ========================================================= */}
             {abaAtiva === "deckstier" && (
               <div className="space-y-6">
-                {/* Banner */}
                 <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-orange-950/40 border border-slate-800 p-6 sm:p-8 shadow-2xl">
                   <div className="relative z-10 max-w-2xl">
                     <span className="text-xs font-black tracking-widest text-orange-400 uppercase bg-orange-950/80 border border-orange-500/30 px-3 py-1 rounded-full">
@@ -585,7 +607,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Lista de Decks com Botões de Voto */}
+                {/* Lista de Decks */}
                 <div className="space-y-6">
                   {decksFiltrados.map((deckItem, idx) => {
                     const tier = deckItem.winRate >= 60 ? "TIER S" : deckItem.winRate >= 56 ? "TIER A" : "TIER B";
@@ -629,7 +651,6 @@ export default function Home() {
                           </div>
 
                           <div className="flex items-center gap-3 flex-wrap">
-                            {/* Métricas */}
                             <div className="flex items-center bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 gap-4 text-xs">
                               <div>
                                 <span className="text-[9px] uppercase font-bold text-slate-500 block">Win Rate</span>
@@ -652,7 +673,7 @@ export default function Home() {
                                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                                   meuVoto === "up" ? "bg-green-600 text-white shadow-lg shadow-green-600/30" : "text-slate-400 hover:text-green-400 hover:bg-slate-900"
                                 }`}
-                                title="Deck forte (Vale a pena jogar)"
+                                title="Deck forte"
                               >
                                 👍 {deckItem.upvotes}
                               </button>
@@ -661,7 +682,7 @@ export default function Home() {
                                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                                   meuVoto === "down" ? "bg-red-600 text-white shadow-lg shadow-red-600/30" : "text-slate-400 hover:text-red-400 hover:bg-slate-900"
                                 }`}
-                                title="Deck fraco / Não recomendado"
+                                title="Não recomendado"
                               >
                                 👎 {deckItem.downvotes}
                               </button>
@@ -687,7 +708,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {/* Grade com Custo e Dano nas 12 cartas */}
+                        {/* Grade das 12 cartas com Chakra e Poder */}
                         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2.5">
                           {deckItem.cards.map((card) => {
                             const possuiNaColecao = minhaColecao.includes(card.id);
@@ -700,7 +721,6 @@ export default function Home() {
                                 }`}
                               >
                                 <div className="relative aspect-[512/768] w-full">
-                                  {/* CUSTO E DANO */}
                                   <div className="absolute top-1 left-1 z-10 bg-blue-600 border border-slate-950 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
                                     {card.chakra}
                                   </div>
@@ -741,7 +761,7 @@ export default function Home() {
             )}
 
             {/* ========================================================= */}
-            {/* ABA 2: TIER LIST COM CUSTO E DANO EM TODAS AS CARTAS */}
+            {/* ABA 2: TIER LIST DE CARTAS */}
             {/* ========================================================= */}
             {abaAtiva === "tierlist" && (
               <div className="space-y-6">
@@ -795,13 +815,12 @@ export default function Home() {
                       className="group bg-slate-900 border border-slate-800 hover:border-orange-500 rounded-2xl overflow-hidden flex flex-col justify-between shadow-xl hover:scale-105 transition-all duration-300"
                     >
                       <div className="relative aspect-[512/768] w-full bg-slate-950 overflow-hidden">
-                        {/* Posição no Ranking */}
                         <div className="absolute top-2 left-2 z-10 bg-slate-950/80 border border-slate-700 text-slate-300 font-extrabold text-[11px] px-2 py-0.5 rounded-md shadow">
                           #{idx + 1}
                         </div>
 
-                        {/* CUSTO E DANO NA TIER LIST */}
-                        <div className="absolute bottom-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
+                        {/* Custo e Poder na Tier List */}
+                        <div className="absolute top-2 right-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
                           {card.chakra}
                         </div>
                         <div className="absolute bottom-2 right-2 z-10 bg-orange-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
@@ -845,6 +864,7 @@ export default function Home() {
 
             {/* ========================================================= */}
             {/* ABA 3: DECK BUILDER */}
+            {/* ========================================================= */}
             {abaAtiva === "builder" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col justify-between h-fit sticky top-24">
@@ -961,7 +981,7 @@ export default function Home() {
                             <img src={`/api/art/${card.id}`} alt={card.name} loading="lazy" className="w-full h-full object-cover" />
                           </div>
                           <div className="p-3 bg-slate-900/95">
-                            <h4 className="font-bold text-xs text-slate-100 truncate mb-1">{card.name}</h4>
+                            <h4 className="font-bold text-xs text-slate-100 mb-1 truncate">{card.name}</h4>
                             <p className="text-[10px] text-slate-300 line-clamp-2 leading-tight">{card.ability?.text || "Sem efeito."}</p>
                           </div>
                         </div>
@@ -973,18 +993,19 @@ export default function Home() {
             )}
 
             {/* ========================================================= */}
-            {/* ABA 4: CATÁLOGO COM CUSTO E DANO EM TODAS AS CARTAS */}
+            {/* ABA 4: CATÁLOGO COMPLETO */}
+            {/* ========================================================= */}
             {abaAtiva === "catalog" && (
               <div className="space-y-6">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex gap-4 items-center">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row gap-4 items-center justify-between">
                   <input
                     type="text"
                     placeholder="Filtrar catálogo completo..."
                     value={catalogBusca}
                     onChange={(e) => setCatalogBusca(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
+                    className="w-full sm:w-1/2 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
                   />
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 flex-wrap">
                     {(["all", 1, 2, 3, 4, 5, 6] as const).map((v) => (
                       <button
                         key={v}
@@ -995,6 +1016,18 @@ export default function Home() {
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-slate-400 px-1">
+                  <span>Exibindo <b>{Math.min(limiteExibicao, cartasCatalogo.length)}</b> de <b>{cartasCatalogo.length}</b> cartas</span>
+                  {limiteExibicao < cartasCatalogo.length && (
+                    <button
+                      onClick={() => setLimiteExibicao(cartasCatalogo.length)}
+                      className="text-orange-400 hover:underline font-bold cursor-pointer"
+                    >
+                      Mostrar Todas de Uma Vez ({cartasCatalogo.length})
+                    </button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -1018,6 +1051,24 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+
+                {/* Botões de Carregar Mais */}
+                {limiteExibicao < cartasCatalogo.length && (
+                  <div className="flex justify-center gap-3 pt-6">
+                    <button
+                      onClick={() => setLimiteExibicao((prev) => prev + 36)}
+                      className="px-6 py-3 bg-slate-900 hover:bg-orange-600 border border-slate-800 hover:border-orange-500 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg cursor-pointer"
+                    >
+                      Exibir Mais (+36) ⬇️
+                    </button>
+                    <button
+                      onClick={() => setLimiteExibicao(cartasCatalogo.length)}
+                      className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs uppercase tracking-wider transition-all shadow-lg cursor-pointer"
+                    >
+                      Carregar Todas ({cartasCatalogo.length})
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>
