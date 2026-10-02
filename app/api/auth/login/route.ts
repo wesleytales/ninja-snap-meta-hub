@@ -9,7 +9,7 @@ export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
   const redirectUri = `${origin}/api/auth/callback`;
 
-  // 1. Gera um code_verifier de 64 caracteres alfanuméricos seguros
+  // 1. Gera code_verifier de 64 caracteres
   const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   const randomBytes = crypto.randomBytes(64);
   let codeVerifier = "";
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     codeVerifier += charset[randomBytes[i] % charset.length];
   }
 
-  // 2. Gera o code_challenge (SHA-256 do verifier em Base64URL sem padding)
+  // 2. Gera code_challenge PKCE S256 Base64URL
   const codeChallenge = crypto
     .createHash("sha256")
     .update(codeVerifier, "ascii")
@@ -26,28 +26,28 @@ export async function GET(request: Request) {
     .replace(/\//g, "_")
     .replace(/=/g, "");
 
-  // 3. Gera state anti-CSRF
+  // 3. State anti-CSRF
   const state = crypto.randomBytes(16).toString("hex");
 
-  // 4. Salva nos cookies do navegador
+  // 4. Salva nos cookies
   const cookieStore = await cookies();
   cookieStore.set("oauth_code_verifier", codeVerifier, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "lax",
     maxAge: 600,
     path: "/",
   });
   cookieStore.set("oauth_state", state, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     sameSite: "lax",
     maxAge: 600,
     path: "/",
   });
 
-  // 5. Monta a URL de autorização oficial
-  const authUrl = new URL("https://ninja-snap.com/oauth/authorize");
+  // 5. URL no SERVIDOR OFICIAL DA API
+  const authUrl = new URL("https://api.ninja-snap.com/oauth/authorize");
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("redirect_uri", redirectUri);
