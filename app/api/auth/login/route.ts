@@ -47,7 +47,7 @@ export async function GET(request: Request) {
   });
 
   // 5. Monta a URL de autorização oficial
-  const authUrl = new URL("https://api.ninja-snap.com/oauth/authorize");
+  const authUrl = new URL("https://ninja-snap.com/oauth/authorize");
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("redirect_uri", redirectUri);
