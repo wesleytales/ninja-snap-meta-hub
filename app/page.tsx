@@ -1393,7 +1393,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MODAL 2: COLEÇÃO COM ALTURA FIXA NAS CARTAS (NUNCA COLAPSA) */}
+      {/* MODAL 2: COLEÇÃO 100% CORRIGIDO (COM SCROLL INDEPENDENTE E MIN-H-0) */}
       {modalColecaoAberto && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
@@ -1453,53 +1453,54 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Grade de Cartas com Altura Garantida (h-44 sm:h-52) */}
-            <div className="p-6 overflow-y-auto flex-grow grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {cartasColecaoModalFiltradas.map((card) => {
-                const possui = minhaColecao.includes(card.id);
+            {/* Grade com min-h-0 e items-start para NUNCA esticar nem achatar */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-6">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 items-start">
+                {cartasColecaoModalFiltradas.map((card) => {
+                  const possui = minhaColecao.includes(card.id);
 
-                return (
-                  <div
-                    key={card.id}
-                    onClick={() => toggleCartaNaColecao(card.id)}
-                    className={`group relative rounded-2xl overflow-hidden border cursor-pointer transition-all hover:scale-105 shadow-xl flex flex-col justify-between ${
-                      possui
-                        ? "border-green-500 ring-2 ring-green-500/50 bg-slate-900"
-                        : "border-slate-800 opacity-40 grayscale bg-slate-950 hover:opacity-75"
-                    }`}
-                  >
-                    {/* Contêiner com altura fixa que impede colapsar */}
-                    <div className="relative w-full h-44 sm:h-52 bg-slate-950 overflow-hidden">
-                      {possui && (
-                        <div className="absolute top-2 right-2 z-20 bg-green-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border border-slate-950">
-                          ✓
+                  return (
+                    <div
+                      key={card.id}
+                      onClick={() => toggleCartaNaColecao(card.id)}
+                      className={`group relative rounded-2xl overflow-hidden border cursor-pointer transition-all hover:scale-105 shadow-xl flex flex-col justify-between ${
+                        possui
+                          ? "border-green-500 ring-2 ring-green-500/50 bg-slate-900"
+                          : "border-slate-800 opacity-40 grayscale bg-slate-950 hover:opacity-75"
+                      }`}
+                    >
+                      <div className="relative aspect-[512/768] w-full bg-slate-950 overflow-hidden">
+                        {possui && (
+                          <div className="absolute top-2 right-2 z-20 bg-green-600 text-white text-xs font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border border-slate-950">
+                            ✓
+                          </div>
+                        )}
+
+                        <div className="absolute top-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
+                          {card.chakra}
                         </div>
-                      )}
+                        <div className="absolute bottom-2 right-2 z-10 bg-orange-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
+                          {card.power}
+                        </div>
 
-                      <div className="absolute top-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
-                        {card.chakra}
+                        <img
+                          src={`/api/art/${card.id}`}
+                          alt={card.name}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
+                        />
                       </div>
-                      <div className="absolute bottom-2 right-2 z-10 bg-orange-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
-                        {card.power}
+
+                      <div className="p-2 text-center bg-slate-900 border-t border-slate-800">
+                        <p className="text-xs font-bold text-slate-200 truncate">{card.name}</p>
                       </div>
-
-                      <img
-                        src={`/api/art/${card.id}`}
-                        alt={card.name}
-                        loading="lazy"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = "none";
-                        }}
-                      />
                     </div>
-
-                    <div className="p-2 text-center bg-slate-900 border-t border-slate-800">
-                      <p className="text-xs font-bold text-slate-200 truncate">{card.name}</p>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
 
             {/* Rodapé do Modal */}
