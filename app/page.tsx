@@ -40,14 +40,23 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Abas
-  const [abaAtiva, setAbaAtiva] = useState<"deckstier" | "tierlist" | "builder" | "catalog">("deckstier");
+  // Abas: "deckstier", "mydecks", "tierlist", "builder", "catalog"
+  const [abaAtiva, setAbaAtiva] = useState<"deckstier" | "mydecks" | "tierlist" | "builder" | "catalog">("deckstier");
+
+  // Nickname do Jogador
+  const [meuNick, setMeuNick] = useState("Tsunoby");
 
   // Minha Coleção
   const [minhaColecao, setMinhaColecao] = useState<string[]>([]);
   const [modalColecaoAberto, setModalColecaoAberto] = useState(false);
+  const [buscaColecaoModal, setBuscaColecaoModal] = useState("");
+  const [chakraColecaoModal, setChakraColecaoModal] = useState<number | "all">("all");
 
-  // Decks reais vindos do Supabase
+  // Modal Importador de Deck
+  const [modalImportarAberto, setModalImportarAberto] = useState(false);
+  const [textoCodigoImportar, setTextoCodigoImportar] = useState("");
+
+  // Decks e Votos
   const [decksLista, setDecksLista] = useState<MetaDeck[]>([]);
   const [meusVotos, setMeusVotos] = useState<Record<string, "up" | "down">>({});
 
@@ -66,7 +75,7 @@ export default function Home() {
   // Deck Builder
   const [deck, setDeck] = useState<Card[]>([]);
   const [nomeDeck, setNomeDeck] = useState("Meu Deck Ninja");
-  const [autorDeck, setAutorDeck] = useState("");
+  const [autorDeck, setAutorDeck] = useState("Tsunoby");
   const [arquetipoDeck, setArquetipoDeck] = useState("Controle");
   const [builderBusca, setBuilderBusca] = useState("");
   const [builderChakra, setBuilderChakra] = useState<number | "all">("all");
@@ -89,15 +98,27 @@ export default function Home() {
     { id: "debuff", label: "📉 Reduz Poder", match: ["reduz", "- de poder", "- poder", "reduzindo"] },
   ];
 
-  // Carrega coleção do localStorage
+  // Carrega coleção e nick salvos
   useEffect(() => {
-    const salva = localStorage.getItem("ninja_snap_collection");
-    if (salva) {
+    const salvaColecao = localStorage.getItem("ninja_snap_collection");
+    if (salvaColecao) {
       try {
-        setMinhaColecao(JSON.parse(salva));
+        setMinhaColecao(JSON.parse(salvaColecao));
       } catch (e) {}
     }
+
+    const salvoNick = localStorage.getItem("ninja_snap_nick");
+    if (salvoNick) {
+      setMeuNick(salvoNick);
+      setAutorDeck(salvoNick);
+    }
   }, []);
+
+  const salvarNick = (novo: string) => {
+    setMeuNick(novo);
+    setAutorDeck(novo);
+    localStorage.setItem("ninja_snap_nick", novo);
+  };
 
   const salvarColecao = (nova: string[]) => {
     setMinhaColecao(nova);
@@ -112,7 +133,7 @@ export default function Home() {
     }
   };
 
-  // 1. CARREGA CARTAS E DEPOIS OS DECKS DO SUPABASE
+  // Carrega cartas e decks do Supabase
   useEffect(() => {
     async function carregarTudo() {
       try {
@@ -143,11 +164,10 @@ export default function Home() {
           salvarColecao(cartasCompletas.slice(0, 45).map((c) => c.id));
         }
 
-        // 2. BUSCA OS DECKS SALVOS NO BANCO SUPABASE
-        const { data: decksDoBanco, error: dbError } = await supabase
+        const { data: decksDoBanco } = await supabase
           .from("decks")
           .select("*")
-          .order("upvotes", { ascending: false });
+          .order("created_at", { ascending: false });
 
         if (decksDoBanco && decksDoBanco.length > 0) {
           const decksMontados: MetaDeck[] = decksDoBanco.map((d: any) => {
@@ -175,26 +195,6 @@ export default function Home() {
           });
 
           setDecksLista(decksMontados);
-        } else {
-          // Se o banco estiver vazio ainda, cria um deck inicial de demonstração
-          if (cartasCompletas.length >= 12) {
-            const deckInicial = {
-              id: "deck-1",
-              title: "Itachi Control & Meta Starter",
-              archetype: "Controle",
-              author: "Tsunoby",
-              minElo: 60,
-              maxElo: 89,
-              rankTierName: "Jonin (60-89)",
-              totalGames: 3420,
-              winRate: 61.8,
-              avgCubes: 0.84,
-              upvotes: 42,
-              downvotes: 2,
-              cards: cartasCompletas.slice(0, 12),
-            };
-            setDecksLista([deckInicial]);
-          }
         }
       } catch (err) {
         setError("Erro ao carregar dados oficiais do Ninja Snap.");
@@ -206,17 +206,74 @@ export default function Home() {
     carregarTudo();
   }, []);
 
-  // PUBLICAR NOVO DECK NO SUPABASE (SALVA DE VERDADE NO BANCO)
+  // PARSER IMPORTADOR
+  const importarCodigoDeck = () => {
+    if (!textoCodigoImportar.trim()) return;
+
+    const texto = textoCodigoImportar;
+    const cartasEncontradas: Card[] = [];
+
+    const matchesIds = texto.match(/\[([a-zA-Z0-9_-]+)\]/g);
+
+    if (matchesIds && matchesIds.length > 0) {
+      matchesIds.forEach((m) => {
+        const idLimpo = m.replace("[", "").replace("]", "").toLowerCase().trim();
+        if (idLimpo.includes("ninja") || idLimpo.includes("deck")) return;
+
+        const carta = cards.find((c) => c.id.toLowerCase() === idLimpo);
+        if (carta && !cartasEncontradas.some((c) => c.id === carta.id)) {
+          cartasEncontradas.push(carta);
+        }
+      });
+    }
+
+    if (cartasEncontradas.length < 12) {
+      cards.forEach((carta) => {
+        if (
+          texto.toLowerCase().includes(carta.name.toLowerCase()) &&
+          !cartasEncontradas.some((c) => c.id === carta.id)
+        ) {
+          if (cartasEncontradas.length < 12) {
+            cartasEncontradas.push(carta);
+          }
+        }
+      });
+    }
+
+    if (cartasEncontradas.length === 0) {
+      alert("❌ Não foi possível reconhecer as cartas no texto colado. Verifique o formato!");
+      return;
+    }
+
+    const matchTitulo = texto.match(/\[Ninja Snap - (.*?)\]/);
+    if (matchTitulo && matchTitulo[1]) {
+      setNomeDeck(matchTitulo[1].trim());
+    } else {
+      setNomeDeck("Deck Importado");
+    }
+
+    setDeck(cartasEncontradas.sort((a, b) => a.chakra - b.chakra));
+    setModalImportarAberto(false);
+    setTextoCodigoImportar("");
+    setAbaAtiva("builder");
+
+    if (cartasEncontradas.length === 12) {
+      alert("✅ Deck de 12 cartas importado com sucesso para o Deck Builder!");
+    } else {
+      alert(`⚠️ Importadas ${cartasEncontradas.length} de 12 cartas. Complete as restantes no Deck Builder!`);
+    }
+  };
+
+  // Salvar no Supabase
   const publicarDeckNoBanco = async () => {
     if (deck.length !== 12) {
-      alert("Para publicar na Tier List, selecione exatamente 12 cartas!");
+      alert("Para salvar o deck, selecione exatamente 12 cartas!");
       return;
     }
 
     try {
       setSalvandoDeck(true);
 
-      // Calcula Win Rate médio das 12 cartas do deck
       const comWinRate = deck.filter((c) => c.winRate !== null && c.winRate !== undefined);
       const mediaWr =
         comWinRate.length > 0
@@ -232,14 +289,14 @@ export default function Home() {
       const cardIds = deck.map((c) => c.id);
 
       const novoDeckBanco = {
-        title: nomeDeck.trim() || "Novo Deck Ninja",
-        author: autorDeck.trim() || "Ninja Anônimo",
+        title: nomeDeck.trim() || "Meu Deck Ninja",
+        author: autorDeck.trim() || meuNick || "Ninja",
         archetype: arquetipoDeck,
         min_elo: 30,
         max_elo: 89,
         rank_tier_name: "Chunin / Jonin",
         win_rate: parseFloat(mediaWr.toFixed(1)),
-        total_games: 50,
+        total_games: 1,
         avg_cubes: parseFloat(mediaCubos.toFixed(2)),
         upvotes: 1,
         downvotes: 0,
@@ -251,9 +308,7 @@ export default function Home() {
         .insert([novoDeckBanco])
         .select();
 
-      if (insertError) {
-        throw insertError;
-      }
+      if (insertError) throw insertError;
 
       const deckSalvo: MetaDeck = {
         id: data[0].id,
@@ -273,19 +328,31 @@ export default function Home() {
       };
 
       setDecksLista([deckSalvo, ...decksLista]);
-      setDeck([]);
-      setNomeDeck(`Meu Deck Ninja #${decksLista.length + 2}`);
-      setAutorDeck("");
-      alert("🎉 Deck publicado e salvo com sucesso no Banco de Dados!");
-      setAbaAtiva("deckstier");
+      salvarNick(autorDeck.trim() || meuNick);
+
+      alert("🎉 Deck salvo com sucesso no seu perfil e no Banco de Dados!");
+      setAbaAtiva("mydecks");
     } catch (err: any) {
-      alert("Erro ao salvar no banco: " + (err.message || "Tente novamente"));
+      alert("Erro ao salvar: " + (err.message || "Tente novamente"));
     } finally {
       setSalvandoDeck(false);
     }
   };
 
-  // VOTAÇÃO COM ATUALIZAÇÃO NO SUPABASE
+  // Excluir Deck
+  const excluirDeckDoBanco = async (deckId: string) => {
+    if (!confirm("Tem certeza que deseja excluir este deck do banco de dados?")) return;
+
+    try {
+      await supabase.from("decks").delete().eq("id", deckId);
+      setDecksLista((prev) => prev.filter((d) => d.id !== deckId));
+      alert("Deck excluído com sucesso!");
+    } catch (err) {
+      alert("Erro ao excluir deck.");
+    }
+  };
+
+  // Votação
   const votarNoDeck = async (deckId: string, tipo: "up" | "down") => {
     if (meusVotos[deckId] === tipo) return;
 
@@ -307,17 +374,23 @@ export default function Home() {
     up = Math.max(0, up);
     down = Math.max(0, down);
 
-    // Atualiza na tela na hora
     setDecksLista((prev) =>
       prev.map((d) => (d.id === deckId ? { ...d, upvotes: up, downvotes: down } : d))
     );
     setMeusVotos({ ...meusVotos, [deckId]: tipo });
 
-    // Salva o voto no Supabase
     try {
       await supabase.from("decks").update({ upvotes: up, downvotes: down }).eq("id", deckId);
     } catch (e) {}
   };
+
+  // Meus Decks
+  const meusDecksPessoais = useMemo(() => {
+    const nickComparar = meuNick.toLowerCase().trim();
+    return decksLista.filter(
+      (d) => d.author.toLowerCase().trim() === nickComparar || d.author === "Tsunoby"
+    );
+  }, [decksLista, meuNick]);
 
   // Análise de Coleção por Deck
   const decksComAnaliseColecao = useMemo(() => {
@@ -332,7 +405,7 @@ export default function Home() {
     });
   }, [decksLista, minhaColecao]);
 
-  // Filtros e Ordenação de Decks
+  // Filtros de Decks do Meta
   const decksFiltrados = useMemo(() => {
     return decksComAnaliseColecao
       .filter((d) => {
@@ -385,6 +458,13 @@ export default function Home() {
     setTimeout(() => setCopiado(false), 2500);
   };
 
+  const carregarDeckNoBuilder = (deckAlvo: MetaDeck) => {
+    setDeck([...deckAlvo.cards]);
+    setNomeDeck(deckAlvo.title + " (Cópia)");
+    setArquetipoDeck(deckAlvo.archetype);
+    setAbaAtiva("builder");
+  };
+
   const cartasTierList = useMemo(() => {
     return cards
       .filter((card) => {
@@ -430,6 +510,16 @@ export default function Home() {
       .sort((a, b) => a.chakra - b.chakra || a.name.localeCompare(b.name));
   }, [cards, catalogBusca, catalogChakra]);
 
+  // Cartas Filtradas no Modal de Coleção
+  const cartasColecaoModalFiltradas = useMemo(() => {
+    return cards.filter((card) => {
+      const texto = buscaColecaoModal.toLowerCase();
+      const bateNome = card.name.toLowerCase().includes(texto);
+      const bateChakra = chakraColecaoModal === "all" ? true : chakraColecaoModal === 6 ? card.chakra >= 6 : card.chakra === chakraColecaoModal;
+      return bateNome && bateChakra;
+    });
+  }, [cards, buscaColecaoModal, chakraColecaoModal]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans selection:bg-orange-500 selection:text-white">
       {/* 1. NAVBAR FIXA */}
@@ -460,20 +550,31 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Menus de Navegação */}
           <nav className="hidden md:flex items-center bg-slate-900/90 border border-slate-800 p-1.5 rounded-2xl gap-1 shadow-inner">
             <button
               onClick={() => setAbaAtiva("deckstier")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "deckstier"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
               }`}
             >
-              🔥 Melhores Decks ({decksLista.length})
+              🔥 Melhores Decks
+            </button>
+            <button
+              onClick={() => setAbaAtiva("mydecks")}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                abaAtiva === "mydecks"
+                  ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+              }`}
+            >
+              👤 Meus Decks ({meusDecksPessoais.length})
             </button>
             <button
               onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "tierlist"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
@@ -483,7 +584,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => setAbaAtiva("builder")}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "builder"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
@@ -493,7 +594,7 @@ export default function Home() {
             </button>
             <button
               onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
                 abaAtiva === "catalog"
                   ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/30"
                   : "text-slate-400 hover:text-white hover:bg-slate-800/60"
@@ -503,28 +604,46 @@ export default function Home() {
             </button>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setModalImportarAberto(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-orange-500 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
+              title="Importar código de deck"
+            >
+              <span>📥</span>
+              <span className="hidden sm:inline">Importar</span>
+            </button>
+
             <button
               onClick={() => setModalColecaoAberto(true)}
-              className="flex items-center gap-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-orange-500/50 rounded-xl text-xs font-bold transition-all shadow-md"
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-orange-500 rounded-xl text-xs font-bold transition-all shadow cursor-pointer"
             >
               <span>🎴</span>
-              <span className="hidden sm:inline">Minha Coleção:</span>
-              <span className="text-orange-400 font-extrabold">{minhaColecao.length}/{cards.length}</span>
+              <span className="hidden sm:inline">Coleção:</span>
+              <span className="text-orange-400 font-black">{minhaColecao.length}/{cards.length}</span>
             </button>
 
             <button
               onClick={() => window.location.href = "/api/auth/login"}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 rounded-xl text-xs font-black shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
             >
               <span>👤</span>
-              <span className="hidden sm:inline">Conectar com Google</span>
+              <span className="hidden sm:inline">Conectar Google</span>
             </button>
           </div>
         </div>
+
+        {/* Menu Mobile */}
+        <div className="md:hidden flex overflow-x-auto px-4 py-2 bg-slate-900 border-t border-slate-800 gap-2">
+          <button onClick={() => setAbaAtiva("deckstier")} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "deckstier" ? "bg-orange-600 text-white" : "text-slate-400"}`}>🔥 Decks Meta</button>
+          <button onClick={() => setAbaAtiva("mydecks")} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "mydecks" ? "bg-orange-600 text-white" : "text-slate-400"}`}>👤 Meus Decks</button>
+          <button onClick={() => { setAbaAtiva("tierlist"); setLimiteExibicao(24); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "tierlist" ? "bg-orange-600 text-white" : "text-slate-400"}`}>🏆 Tier List</button>
+          <button onClick={() => setAbaAtiva("builder")} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "builder" ? "bg-orange-600 text-white" : "text-slate-400"}`}>🃏 Criar Deck</button>
+          <button onClick={() => { setAbaAtiva("catalog"); setLimiteExibicao(24); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap ${abaAtiva === "catalog" ? "bg-orange-600 text-white" : "text-slate-400"}`}>📖 Catálogo</button>
+        </div>
       </header>
 
-      {/* 2. CONTEÚDO */}
+      {/* 2. CONTEÚDO PRINCIPAL */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         {loading && (
           <div className="text-center py-32">
@@ -543,7 +662,139 @@ export default function Home() {
 
         {!loading && !error && (
           <>
-            {/* ABA 1: MELHORES DECKS */}
+            {/* ABA: MEUS DECKS PESSOAIS */}
+            {abaAtiva === "mydecks" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
+                  <div>
+                    <span className="text-[10px] font-black tracking-widest text-orange-400 uppercase bg-orange-950/80 border border-orange-500/30 px-3 py-0.5 rounded-full">
+                      ÁREA DO JOGADOR
+                    </span>
+                    <h2 className="text-2xl font-black text-white mt-2">
+                      Meus Decks Salvos ({meusDecksPessoais.length})
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Baralhos vinculados ao seu Nick: <b className="text-orange-400">{meuNick}</b>
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+                      <span className="text-[11px] text-slate-400">Nick:</span>
+                      <input
+                        type="text"
+                        value={meuNick}
+                        onChange={(e) => salvarNick(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-orange-400 focus:outline-none w-24"
+                      />
+                    </div>
+                    <button
+                      onClick={() => setModalImportarAberto(true)}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition-all cursor-pointer"
+                    >
+                      📥 Importar Código
+                    </button>
+                    <button
+                      onClick={() => setAbaAtiva("builder")}
+                      className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-xs font-black rounded-xl text-white transition-all shadow-lg cursor-pointer"
+                    >
+                      + Novo Deck
+                    </button>
+                  </div>
+                </div>
+
+                {meusDecksPessoais.length === 0 ? (
+                  <div className="text-center py-20 bg-slate-900/50 rounded-3xl border border-slate-800 p-8 space-y-4">
+                    <span className="text-4xl block">🃏</span>
+                    <h3 className="text-lg font-bold text-slate-200">Você ainda não salvou nenhum deck pessoal!</h3>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Use o Deck Builder para montar seu baralho ou clique no botão abaixo para colar um código do jogo.
+                    </p>
+                    <div className="flex justify-center gap-3 pt-2">
+                      <button
+                        onClick={() => setModalImportarAberto(true)}
+                        className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 cursor-pointer"
+                      >
+                        📥 Importar Código de Deck
+                      </button>
+                      <button
+                        onClick={() => setAbaAtiva("builder")}
+                        className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-xs font-black rounded-xl text-white shadow-lg cursor-pointer"
+                      >
+                        Montar no Deck Builder
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {meusDecksPessoais.map((deckItem) => (
+                      <div
+                        key={deckItem.id}
+                        className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl hover:border-slate-700 transition-all"
+                      >
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-5 pb-5 border-b border-slate-800">
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-orange-600 text-white shadow">
+                                {deckItem.archetype}
+                              </span>
+                              <h3 className="text-xl font-black text-slate-100">{deckItem.title}</h3>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">
+                              Criado por você (<b className="text-orange-400">{deckItem.author}</b>) • Win Rate Estimado: <b className="text-green-400">{deckItem.winRate}%</b>
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              onClick={() => carregarDeckNoBuilder(deckItem)}
+                              className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 transition-all cursor-pointer"
+                              title="Editar no Builder"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              onClick={() => copiarCodigoDeck(deckItem.cards, deckItem.title)}
+                              className="px-3.5 py-2 bg-slate-800 hover:bg-orange-600 text-xs font-bold rounded-xl text-slate-200 hover:text-white transition-all cursor-pointer"
+                            >
+                              📋 Copiar Código
+                            </button>
+                            <button
+                              onClick={() => excluirDeckDoBanco(deckItem.id)}
+                              className="px-3 py-2 bg-slate-800 hover:bg-red-600 text-xs font-bold rounded-xl text-slate-400 hover:text-white transition-all cursor-pointer"
+                              title="Excluir deck do banco"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2.5">
+                          {deckItem.cards.map((card) => (
+                            <div key={card.id} className="group relative bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow hover:border-orange-500 transition-all hover:scale-105">
+                              <div className="relative aspect-[512/768] w-full">
+                                <div className="absolute top-1 left-1 z-10 bg-blue-600 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
+                                  {card.chakra}
+                                </div>
+                                <div className="absolute top-1 right-1 z-10 bg-orange-600 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
+                                  {card.power}
+                                </div>
+                                <img src={`/api/art/${card.id}`} alt={card.name} loading="lazy" className="w-full h-full object-cover" />
+                              </div>
+                              <div className="p-1.5 text-center bg-slate-900">
+                                <p className="text-[10px] font-bold text-slate-200 truncate">{card.name}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ABA: MELHORES DECKS GERAIS */}
             {abaAtiva === "deckstier" && (
               <div className="space-y-6">
                 <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-orange-950/40 border border-slate-800 p-6 sm:p-8 shadow-2xl">
@@ -555,7 +806,7 @@ export default function Home() {
                       Top Decks do Meta Ranqueado
                     </h2>
                     <p className="text-xs sm:text-sm text-slate-400 mt-2 leading-relaxed">
-                      Decks sincronizados diretamente da nuvem. Crie o seu e vote nos melhores para subir de elo!
+                      Decks salvos pela comunidade. Classificação por Win Rate, volume de partidas e rendimento de cubos.
                     </p>
                   </div>
                 </div>
@@ -690,14 +941,12 @@ export default function Home() {
                               </div>
                             </div>
 
-                            {/* VOTAÇÃO SUPABASE */}
                             <div className="flex items-center bg-slate-950 rounded-2xl border border-slate-800 p-1 shadow">
                               <button
                                 onClick={() => votarNoDeck(deckItem.id, "up")}
                                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                   meuVoto === "up" ? "bg-green-600 text-white shadow-lg shadow-green-600/30" : "text-slate-400 hover:text-green-400 hover:bg-slate-900"
                                 }`}
-                                title="Deck forte"
                               >
                                 👍 {deckItem.upvotes}
                               </button>
@@ -706,21 +955,10 @@ export default function Home() {
                                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                                   meuVoto === "down" ? "bg-red-600 text-white shadow-lg shadow-red-600/30" : "text-slate-400 hover:text-red-400 hover:bg-slate-900"
                                 }`}
-                                title="Não recomendado"
                               >
                                 👎 {deckItem.downvotes}
                               </button>
                             </div>
-
-                            {deckItem.missingCount === 0 ? (
-                              <span className="bg-green-950/80 border border-green-500/50 text-green-300 text-xs font-black px-3 py-2 rounded-xl">
-                                ✓ Pronto p/ Jogar
-                              </span>
-                            ) : (
-                              <span className="bg-amber-950/80 border border-amber-500/50 text-amber-300 text-xs font-black px-3 py-2 rounded-xl">
-                                Falta {deckItem.missingCount} {deckItem.missingCount === 1 ? "carta" : "cartas"}
-                              </span>
-                            )}
 
                             <button
                               onClick={() => copiarCodigoDeck(deckItem.cards, deckItem.title)}
@@ -744,10 +982,10 @@ export default function Home() {
                                 }`}
                               >
                                 <div className="relative aspect-[512/768] w-full">
-                                  <div className="absolute top-1 left-1 z-10 bg-blue-600 border border-slate-950 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
+                                  <div className="absolute top-1 left-1 z-10 bg-blue-600 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
                                     {card.chakra}
                                   </div>
-                                  <div className="absolute top-1 right-1 z-10 bg-orange-600 border border-slate-950 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
+                                  <div className="absolute top-1 right-1 z-10 bg-orange-600 text-white font-black text-[9px] w-5 h-5 rounded-full flex items-center justify-center shadow">
                                     {card.power}
                                   </div>
 
@@ -759,15 +997,7 @@ export default function Home() {
                                     </div>
                                   )}
 
-                                  <img
-                                    src={`/api/art/${card.id}`}
-                                    alt={card.name}
-                                    loading="lazy"
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                      (e.target as HTMLElement).style.display = "none";
-                                    }}
-                                  />
+                                  <img src={`/api/art/${card.id}`} alt={card.name} loading="lazy" className="w-full h-full object-cover" />
                                 </div>
                                 <div className="p-1.5 text-center bg-slate-900">
                                   <p className="text-[10px] font-bold text-slate-200 truncate">{card.name}</p>
@@ -783,7 +1013,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ABA 2: TIER LIST DE CARTAS */}
+            {/* ABA: TIER LIST DE CARTAS */}
             {abaAtiva === "tierlist" && (
               <div className="space-y-6">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
@@ -839,23 +1069,13 @@ export default function Home() {
                         <div className="absolute top-2 left-2 z-10 bg-slate-950/80 border border-slate-700 text-slate-300 font-extrabold text-[11px] px-2 py-0.5 rounded-md shadow">
                           #{idx + 1}
                         </div>
-
                         <div className="absolute top-2 right-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
                           {card.chakra}
                         </div>
                         <div className="absolute bottom-2 right-2 z-10 bg-orange-600 border border-slate-950 text-white font-black text-xs w-7 h-7 rounded-full flex items-center justify-center shadow-lg">
                           {card.power}
                         </div>
-
-                        <img
-                          src={`/api/art/${card.id}`}
-                          alt={card.name}
-                          loading="lazy"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = "none";
-                          }}
-                        />
+                        <img src={`/api/art/${card.id}`} alt={card.name} loading="lazy" className="w-full h-full object-cover" />
                       </div>
 
                       <div className="p-3 bg-slate-900/95 flex flex-col justify-between flex-grow gap-2">
@@ -882,7 +1102,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ABA 3: DECK BUILDER COM SALVAMENTO NO SUPABASE */}
+            {/* ABA: DECK BUILDER */}
             {abaAtiva === "builder" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-2xl flex flex-col justify-between h-fit sticky top-24">
@@ -899,10 +1119,9 @@ export default function Home() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Seu Nick:</label>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Autor / Nick:</label>
                         <input
                           type="text"
-                          placeholder="Ex: Tsunoby"
                           value={autorDeck}
                           onChange={(e) => setAutorDeck(e.target.value)}
                           className="bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-xl px-3 py-2 w-full focus:outline-none focus:border-orange-500"
@@ -964,7 +1183,7 @@ export default function Home() {
                           : "bg-slate-800 text-slate-500 cursor-not-allowed"
                       }`}
                     >
-                      {salvandoDeck ? "Salvando no Banco..." : `🚀 Salvar no Banco (${deck.length}/12)`}
+                      {salvandoDeck ? "Salvando no Banco..." : `🚀 Salvar no Meu Perfil (${deck.length}/12)`}
                     </button>
                     <button
                       onClick={() => copiarCodigoDeck(deck, nomeDeck)}
@@ -1051,7 +1270,7 @@ export default function Home() {
               </div>
             )}
 
-            {/* ABA 4: CATÁLOGO COMPLETO */}
+            {/* ABA: CATÁLOGO */}
             {abaAtiva === "catalog" && (
               <div className="space-y-6">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-col sm:flex-row gap-4 items-center justify-between">
@@ -1130,81 +1349,168 @@ export default function Home() {
         )}
       </main>
 
-      {/* 3. MODAL DE COLEÇÃO */}
-      {modalColecaoAberto && (
+      {/* MODAL 1: IMPORTADOR */}
+      {modalImportarAberto && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-950">
-              <div>
-                <h3 className="text-xl font-black text-white flex items-center gap-2">
-                  <span>🎴</span> Minha Coleção de Ninjas
-                </h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Marque as cartas que você possui para ver os decks prontos para jogar!
-                </p>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+              <h3 className="text-lg font-black text-white flex items-center gap-2">
+                <span>📥</span> Importar Código de Deck
+              </h3>
+              <button
+                onClick={() => setModalImportarAberto(false)}
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-red-600 text-white font-bold flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Cole o código copiado do Ninja Snap, Discord ou amigos:
+            </p>
+
+            <textarea
+              rows={6}
+              placeholder={`Cole aqui... Exemplo:\n[Ninja Snap - Itachi Control]\n# (1) Naruto [naruto]\n# (2) Sasuke [sasuke]`}
+              value={textoCodigoImportar}
+              onChange={(e) => setTextoCodigoImportar(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-orange-500 font-mono"
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setModalImportarAberto(false)}
+                className="px-4 py-2 bg-slate-800 text-slate-300 text-xs font-bold rounded-xl"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={importarCodigoDeck}
+                className="px-5 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-black rounded-xl shadow-lg cursor-pointer"
+              >
+                Identificar & Montar Deck
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: COLEÇÃO CORRIGIDO COM BUSCA, CUSTO E ALTURA FIXA */}
+      {modalColecaoAberto && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Topo do Modal */}
+            <div className="p-5 sm:p-6 border-b border-slate-800 bg-slate-950 space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-black text-white flex items-center gap-2">
+                    <span>🎴</span> Minha Coleção de Ninjas
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Marque as cartas que você possui para ver os decks prontos para jogar!
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => salvarColecao(cards.map((c) => c.id))}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 cursor-pointer"
+                  >
+                    Marcar Todas
+                  </button>
+                  <button
+                    onClick={() => salvarColecao([])}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-xl text-slate-200 cursor-pointer"
+                  >
+                    Desmarcar
+                  </button>
+                  <button
+                    onClick={() => setModalColecaoAberto(false)}
+                    className="w-8 h-8 rounded-full bg-slate-800 hover:bg-red-600 text-white font-bold flex items-center justify-center cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => salvarColecao(cards.map((c) => c.id))}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300"
-                >
-                  Marcar Todas
-                </button>
-                <button
-                  onClick={() => salvarColecao([])}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg text-slate-300"
-                >
-                  Desmarcar Todas
-                </button>
-                <button
-                  onClick={() => setModalColecaoAberto(false)}
-                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-red-600 text-white font-bold flex items-center justify-center"
-                >
-                  ✕
-                </button>
+
+              {/* Barra de Filtros Interna do Modal */}
+              <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-1">
+                <input
+                  type="text"
+                  placeholder="Pesquisar ninja na coleção..."
+                  value={buscaColecaoModal}
+                  onChange={(e) => setBuscaColecaoModal(e.target.value)}
+                  className="w-full sm:w-1/2 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-orange-500"
+                />
+                <div className="flex gap-1 flex-wrap">
+                  {(["all", 1, 2, 3, 4, 5, 6] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setChakraColecaoModal(v)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold ${chakraColecaoModal === v ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400"}`}
+                    >
+                      {v === "all" ? "Todos" : v === 6 ? "6+" : v}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="p-6 overflow-y-auto grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
-              {cards.map((card) => {
+            {/* Grade de Cartas com Altura Fixa */}
+            <div className="p-6 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {cartasColecaoModalFiltradas.map((card) => {
                 const possui = minhaColecao.includes(card.id);
 
                 return (
                   <div
                     key={card.id}
                     onClick={() => toggleCartaNaColecao(card.id)}
-                    className={`relative rounded-xl overflow-hidden border cursor-pointer transition-all ${
+                    className={`group relative rounded-2xl overflow-hidden border cursor-pointer transition-all hover:scale-105 shadow-xl flex flex-col justify-between ${
                       possui
-                        ? "border-green-500 ring-2 ring-green-500/40 opacity-100 scale-100"
-                        : "border-slate-800 opacity-40 grayscale hover:opacity-75"
+                        ? "border-green-500 ring-2 ring-green-500/40 opacity-100 bg-slate-900"
+                        : "border-slate-800 opacity-40 grayscale bg-slate-950 hover:opacity-75"
                     }`}
                   >
-                    <div className="aspect-[512/768] w-full bg-slate-950 relative">
-                      <div className="absolute top-1 left-1 z-10 bg-blue-600 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                    <div className="relative aspect-[512/768] w-full bg-slate-950">
+                      {/* Checkmark Verde */}
+                      {possui && (
+                        <div className="absolute top-2 right-2 z-20 bg-green-600 text-white text-[10px] font-black w-6 h-6 rounded-full flex items-center justify-center shadow-lg border border-slate-950">
+                          ✓
+                        </div>
+                      )}
+
+                      {/* Badges de Custo e Poder */}
+                      <div className="absolute top-2 left-2 z-10 bg-blue-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
                         {card.chakra}
                       </div>
-                      <div className="absolute top-1 right-1 z-10 bg-orange-600 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">
+                      <div className="absolute bottom-2 right-2 z-10 bg-orange-600 border border-slate-950 text-white font-black text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg">
                         {card.power}
                       </div>
-                      <img src={`/api/art/${card.id}`} alt={card.name} loading="lazy" className="w-full h-full object-cover" />
+
+                      <img
+                        src={`/api/art/${card.id}`}
+                        alt={card.name}
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                    <p className="text-[10px] font-bold text-center py-1 bg-slate-900 truncate px-1 text-slate-200">
-                      {card.name}
-                    </p>
+                    <div className="p-2 text-center bg-slate-900/95 border-t border-slate-800">
+                      <p className="text-[11px] font-bold text-slate-200 truncate">{card.name}</p>
+                    </div>
                   </div>
                 );
               })}
             </div>
 
+            {/* Rodapé do Modal */}
             <div className="p-4 bg-slate-950 border-t border-slate-800 flex justify-between items-center text-xs">
               <span className="text-slate-400">
-                Total na coleção: <b className="text-orange-400">{minhaColecao.length}</b> de {cards.length} ninjas
+                Cartas na coleção: <b className="text-orange-400">{minhaColecao.length}</b> de {cards.length} ninjas
               </span>
               <button
                 onClick={() => setModalColecaoAberto(false)}
                 className="px-6 py-2.5 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-xl shadow-lg cursor-pointer"
               >
-                Salvar Coleção
+                Concluir & Salvar
               </button>
             </div>
           </div>
